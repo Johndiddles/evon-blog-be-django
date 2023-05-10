@@ -21,20 +21,20 @@ jwt_secret_token = "evonblog_tokens"
 
 
 @api_view(["GET"])
-@csrf_exempt
 def getPosts(request):
     posts = Post.objects.all()
-    print(posts)
-
     serialized_posts = PostSerializer(posts, many=True)
+    return Response(serialized_posts.data)
 
-    print(serialized_posts.data)
-
+@api_view(["GET"])
+def getSinglePost(request, pk):
+    posts = Post.objects.get(id=pk)
+    serialized_posts = PostSerializer(posts)
     return Response(serialized_posts.data)
 
 
+
 @api_view(["POST"])
-@csrf_exempt
 def createPost(request):
     if request.method == "POST":
         # AUTHENTICATION 
@@ -86,19 +86,23 @@ def editPost(request, pk):
         post_data = JSONParser().parse(request)
 
         if not authorization_header:
+            print("no token")
             return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
 
         token = authorization_header.split(' ')[1]
         try:
             decoded_token = jwt.decode(token, jwt_secret_token, algorithms=['HS256'])
         except ExpiredSignatureError:
+            print("token is invalid")
             return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
         except:
+            print("invalid token")
             return Response({'error': 'Invalid Auth Token'}, status=status.HTTP_401_UNAUTHORIZED)
         
         try: 
             userInfo = User.objects.get(id=decoded_token["id"])
         except User.DoesNotExist:
+            print("user does not exist")
             return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
              
         try:
@@ -154,6 +158,7 @@ def deletePost(request, pk):
         except Post.DoesNotExist: 
             return Response({"error": "This post no longer exist"}, status=status.HTTP_400_BAD_REQUEST)
         
+        print(userInfo.id, post.author_id)
         if userInfo.id != post.author_id:
             return Response({"error": "Access Denied"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -170,7 +175,7 @@ def deletePost(request, pk):
 def getComments(request, pk):
     comments = Comment.objects.filter(Q(post_id = pk))
     serialized_comments = CommentSerializer(comments, many=True)
-    print(serialized_comments.data)
+    
 
     return Response(serialized_comments.data, status=status.HTTP_200_OK)
 
@@ -320,38 +325,27 @@ def getUsers(request):
 def createUser(request):
     if request.method == "POST":
         user_data = JSONParser().parse(request)
-     
-        if user_data["password"] is not None:
-            hashed_password = make_password(user_data["password"])
-            user_data["password"] = hashed_password
-            
-            serialized_user_data = SaveUserSerializer(data=user_data)
-          
 
-            if serialized_user_data.is_valid():
-                serialized_user_data.save()
-
-                # print(saved_data)
-                return JsonResponse("User created successfully", safe=False)
+        try:
+            existing_user = User.objects.get(username__iexact=user_data["username"])
+            return Response({"error": "User already exist with this username"}, status=status.HTTP_400_BAD_REQUEST)
         
-        return JsonResponse("Invalid data provided", safe=False)
-    
-@api_view(["POST"])
-def loginUser(request):    
-    if request.method == "POST":
-        request_body = JSONParser().parse(request)
-        username = request_body["username"]
-        password = request_body["password"]
-        user = User.objects.get(username=username)
-    
-        if user is not None:
-            is_password_okay = check_password(password, user.password)
+        except User.DoesNotExist:      
+            if user_data["password"] is not None:
+                hashed_password = make_password(user_data["password"])
+                user_data["password"] = hashed_password
+                
+                serialized_user_data = SaveUserSerializer(data=user_data)
             
-            if is_password_okay:
-               
-                serialized_user = GetUserSerializer(user)
-                data = {**serialized_user.data}
 
+                if serialized_user_data.is_valid():
+                    serialized_user_data.save()
+
+                new_user = User.objects.get(username=user_data['username'])
+
+                serialized_user = GetUserSerializer(new_user)
+                data = {**serialized_user.data}
+                
                 now = datetime.utcnow()
                 expires_at = now + timedelta(hours=1)
                 payload = {
@@ -361,13 +355,45 @@ def loginUser(request):
                 }
                 jwt_token = jwt.encode(payload, jwt_secret_token, algorithm='HS256')
 
-                print(jwt_token)
                 data["token"] = jwt_token
+
                 return Response(data, status=status.HTTP_200_OK)
+            
+        return Response({"error": "Invalid data provided"}, status=status.HTTP_400_BAD_REQUEST)
+    
+@api_view(["POST"])
+def loginUser(request):    
+    if request.method == "POST":
+        request_body = JSONParser().parse(request)
+        username = request_body["username"]
+        password = request_body["password"]
+
+        is_password_okay = False
+        try: 
+            user = User.objects.get(username__iexact=username)
+            is_password_okay = check_password(password, user.password)
+        except User.DoesNotExist: 
+             Response({"errorr":"Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
         
-            return Response({"error": "Invalid credentials"}, status.HTTP_400_BAD_REQUEST)
+        
+        if is_password_okay:
+            serialized_user = GetUserSerializer(user)
+            data = {**serialized_user.data}
+
+            now = datetime.utcnow()
+            expires_at = now + timedelta(hours=1)
+            payload = {
+                'id': data["id"],
+                'username': data["username"],
+                'exp': expires_at
+            }
+            jwt_token = jwt.encode(payload, jwt_secret_token, algorithm='HS256')
+
+            data["token"] = jwt_token
+            return Response(data, status=status.HTTP_200_OK)
+    
+        return Response({"error": "Invalid credentials"}, status.HTTP_400_BAD_REQUEST)
           
             
-        Response({"errorr":"Invalid credentials"}, status=status.HTTP_400_BAD_REQUEST)
  
     return Response({"error": "Method Not Allowed"}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
