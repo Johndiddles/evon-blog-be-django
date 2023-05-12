@@ -7,13 +7,13 @@ git clone https://github.com/Johndiddles/evon-blog-be-django
 ```
 
 cd into the cloned project:
+(you need to have python3 installed already)
 
 ```bash
 cd evon-blog-be-django
 ```
 
 activate the virtual environment
-on windows
 
 ```bash
 # on windows
@@ -29,7 +29,7 @@ env\Scripts\activate
 source env/bin/activate
 ```
 
-Then install all dependencies (you need to have python3 installed already)
+Then install all dependencies
 
 ```bash
 pip install -r requirements.txt
